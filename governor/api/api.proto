@@ -1,0 +1,36 @@
+// api.proto
+// Specifies the governor gRPC interface.
+
+syntax = "proto3";
+
+package "governor.api"
+option go_package = "governor.api"
+
+enum CapacityType {
+	CAPACITY_TYPE_UNKNOWN = 1;
+	CAPACITY_TYPE_GPU = 2;
+}
+
+service Governor {
+	// InternalAllocate is a governor-governor gRPC call which attempts to
+	// allocate remote resources. This cannot be called by the plugin.
+	//
+	// TODO(minkezhang): Consider exporting to an internal-only service.
+	rpc InternalAllocate(InternalAllocateRequest) returns (InternalAllocateResponse) {}
+}
+
+message Resource {
+	string host = 1;
+
+	CapacityType type = 2;
+	int capacity = 3;
+}
+
+message InternalAllocateRequest {
+	request Resource = 1;
+}
+
+message InternalAllocateResponse {
+	repeated Resource resources = 1;
+		
+}
