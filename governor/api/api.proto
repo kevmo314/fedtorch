@@ -3,12 +3,12 @@
 
 syntax = "proto3";
 
-package "governor.api"
-option go_package = "governor.api"
+package governor.api;
+option go_package = "github.com/kevmo314/fedtorch/governor/api";
 
 enum CapacityType {
-	CAPACITY_TYPE_UNKNOWN = 1;
-	CAPACITY_TYPE_GPU = 2;
+	CAPACITY_TYPE_UNKNOWN = 0;
+	CAPACITY_TYPE_GPU = 1;
 }
 
 service Governor {
@@ -23,11 +23,11 @@ message Resource {
 	string host = 1;
 
 	CapacityType type = 2;
-	int capacity = 3;
+	int32 capacity = 3;
 }
 
 message InternalAllocateRequest {
-	request Resource = 1;
+	Resource request = 1;
 }
 
 message InternalAllocateResponse {
