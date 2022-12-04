@@ -4,7 +4,7 @@
 syntax = "proto3";
 
 package governor.api;
-option go_package = "github.com/kevmo314/fedtorch/governor/api";
+option go_package = "github.com/kevmo314/fedtorch/governor/api/go/api";
 
 enum CapacityType {
 	CAPACITY_TYPE_UNKNOWN = 0;
