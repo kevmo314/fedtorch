@@ -55,6 +55,8 @@ type GPUAllocator struct {
 // governor may call Reserver() multiple times concurrently. The returned GPU
 // may be remote. The governor should negotiate with the remote governor on how
 // exactly to use the reserved GPU.
+//
+// Motivated by https://medium.com/rahasak/libp2p-pubsub-with-golang-495539e6aae1.
 func New(ctx context.Context, governorAddress string, id peer.ID, ps *pubsub.PubSub) *GPUAllocator {
 	request, err := ps.Join(GPURequestTopic)
 	if err != nil {
