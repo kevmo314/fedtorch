@@ -6,15 +6,37 @@ package governor.gpu;
 option go_package = "github.com/kevmo314/fedtorch/governor/api/go/gpu";
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
 
 message GPU {
-	string host = 1;
+	// addr is the address of the governor instance.
+	string addr = 1;
 
-	int32 device_id = 2;
+	int32 id = 2;
 	string name = 3;
 	int64 memory = 4;
 	int32 clock_rate = 5;
+}
 
-	string allocation_token = 6;
-	google.protobuf.Timestamp lease_expiration = 7;
+// Lease is a local device lease.
+message Lease {
+	int32 id = 1;
+
+	google.protobuf.Timestamp expiration = 2;
+}
+
+message Request {
+	string requestor = 1;
+	// It is possible for the same requestor to ask for multiple GPUs.
+	// Account for this by adding some unique data to each request.
+	string token = 2;
+
+	google.protobuf.Duration lease = 3;
+}
+
+message Fulfillment {
+	string requestor = 1;
+	string token = 2;
+
+	GPU gpu = 3;	
 }
