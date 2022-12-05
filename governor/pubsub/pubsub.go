@@ -153,7 +153,7 @@ func (a *GPUAllocator) fulfillmentDaemon(ctx context.Context, monitor *pubsub.Su
 			for {
 				msg, err := monitor.Next(ctx)
 				if err != nil {
-					continue
+					return true
 				}
 
 				f := &gpupb.Fulfillment{}
