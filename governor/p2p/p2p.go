@@ -11,26 +11,30 @@ type Topic int
 
 const (
 	TopicUnknown Topic = iota
-	TopicHasCapacity
+	TopicHasGPUCapacity
 )
 
 var (
 	Timeout = 30 * time.Second
 
 	Topics = map[Topic]dht.InfoHash{
-		TopicHasCapacity: "0xdeadbeef",
+		TopicHasGPUCapacity: "0xdeadbeef",
 	}
 )
 
 type Peer string
 
 type Store struct {
-	dht *dht.DHT
+	host string
+	dht  *dht.DHT
 }
 
 type O struct {
+	// Address is the governor address.
 	Address string
-	Port    int
+
+	// Port is the governor port.
+	Port int
 }
 
 func New(o O) *Store {
@@ -44,12 +48,14 @@ func New(o O) *Store {
 	}
 
 	return &Store{
-		dht: t,
+		dht:  t,
+		host: fmt.Sprintf("%v:%v", o.Address, t.Port()),
 	}
 }
 
 func (s *Store) Start() error { return s.dht.Start() }
 func (s *Store) Stop()        { s.dht.Stop() }
+func (s *Store) Host() string { return s.host }
 
 func (s *Store) Announce(t Topic) { s.dht.PeersRequest(string(Topics[t]), true) }
 func (s *Store) Revoke(t Topic)   { s.dht.RemoveInfoHash(string(Topics[t])) }

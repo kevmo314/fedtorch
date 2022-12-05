@@ -6,32 +6,20 @@ syntax = "proto3";
 package governor.api;
 option go_package = "github.com/kevmo314/fedtorch/governor/api/go/api";
 
-enum ResourceType {
-	RESOURCE_TYPE_UNKNOWN = 0;
-	RESOURCE_TYPE_GPU = 1;
-}
+import "api/gpu.proto";
 
 service Governor {
-	// InternalAllocate is a governor-governor gRPC call which attempts to
+	// InternalAllocateGPU is a governor-governor gRPC call which attempts to
 	// allocate remote resources. This cannot be called by the plugin.
 	//
 	// TODO(minkezhang): Consider exporting to an internal-only service.
-	rpc InternalAllocate(InternalAllocateRequest) returns (InternalAllocateResponse) {}
+	rpc InternalAllocateGPU(InternalAllocateGPURequest) returns (InternalAllocateGPUResponse) {}
 }
 
-message Resource {
-	string host = 1;
-
-	ResourceType type = 2;
-	int32 device_id = 3;
-}
-
-message InternalAllocateRequest {
-	ResourceType type = 1;
+message InternalAllocateGPURequest {
 	int32 capacity = 2;
 }
 
-message InternalAllocateResponse {
-	repeated Resource resources = 1;
-		
+message InternalAllocateGPUResponse {
+	repeated governor.gpu.GPU gpus = 1;
 }

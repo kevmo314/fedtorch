@@ -1,0 +1,20 @@
+// gpu.proto
+
+syntax = "proto3";
+
+package governor.gpu;
+option go_package = "github.com/kevmo314/fedtorch/governor/api/go/gpu";
+
+import "google/protobuf/timestamp.proto";
+
+message GPU {
+	string host = 1;
+
+	int32 device_id = 2;
+	string name = 3;
+	int64 memory = 4;
+	int32 clock_rate = 5;
+
+	string allocation_token = 6;
+	google.protobuf.Timestamp lease_expiration = 7;
+}
