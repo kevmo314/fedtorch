@@ -21,8 +21,9 @@ message GPU {
 // Lease is a local device lease.
 message Lease {
 	int32 id = 1;
+	string token = 2;
 
-	google.protobuf.Timestamp expiration = 2;
+	google.protobuf.Timestamp expiration = 3;
 }
 
 message Request {

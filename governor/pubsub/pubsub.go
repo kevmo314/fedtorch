@@ -48,6 +48,16 @@ type GPUAllocator struct {
 	l      sync.Mutex
 	gpus   []*gpupb.GPU
 	leases []*gpupb.Lease
+
+	/* x */
+	// gpuReturn is an internal pipeline to process GPU returns.
+	gpuReturn chan *gpupb.Lease
+
+	// gpuRequest is a pipeline to lease out local GPUs.
+	gpuRequest chan time.Duration
+
+	// gpuFulfillment is a response pipeline with GPU information.
+	gpuFulfillment chan *gpupb.Lease
 }
 
 type O struct {
