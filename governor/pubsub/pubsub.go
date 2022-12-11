@@ -6,10 +6,10 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/kevmo314/fedtorch/governor/pubsub/local"
 	"github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/proto"
-	"github.com/kevmo314/fedtorch/governor/pubsub/local"
 
 	gpupb "github.com/kevmo314/fedtorch/governor/api/go/gpu"
 	dpb "google.golang.org/protobuf/types/known/durationpb"

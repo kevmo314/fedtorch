@@ -41,5 +41,6 @@ message Fulfillment {
 	string requestor = 1;
 	string token = 2;
 
-	GPU gpu = 3;	
+	Lease lease = 3;
+	GPU gpu = 4;	
 }

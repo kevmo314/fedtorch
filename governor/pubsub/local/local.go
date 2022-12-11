@@ -72,7 +72,7 @@ func (a *Allocator) daemon() {
 func (a *Allocator) Reserve(lease time.Duration) (*gpupb.Lease, error) {
 	t := generateToken()
 	expiration := time.Now().Add(lease).Add(a.grace)
-	g, err := func() (*gpupb.Lease, error) {
+	l, err := func() (*gpupb.Lease, error) {
 		a.l.Lock()
 		defer a.l.Unlock()
 
@@ -94,10 +94,10 @@ func (a *Allocator) Reserve(lease time.Duration) (*gpupb.Lease, error) {
 	}()
 
 	if err != nil {
-		go func() {
-			time.After(time.Until(expiration))
-			a.returnGPU <- g
-		}()
+		go func(l *gpupb.Lease) {
+			time.Sleep(time.Until(expiration))
+			a.returnGPU <- l
+		}(l)
 	}
-	return g, err
+	return l, err
 }
