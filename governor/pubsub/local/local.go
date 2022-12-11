@@ -24,12 +24,14 @@ func generateToken() string {
 }
 
 type LocalAllocator struct {
+	// gpus is immutable after construction
+	gpus []*gpupb.GPU
+
 	l      sync.Mutex
-	gpus   []*gpupb.GPU
 	leases map[int32]*gpupb.Lease
 
 	returnGPU chan *gpupb.Lease
-	grace time.Duration
+	grace     time.Duration
 }
 
 func New(gpus []*gpupb.GPU, grace time.Duration) *LocalAllocator {
@@ -37,11 +39,13 @@ func New(gpus []*gpupb.GPU, grace time.Duration) *LocalAllocator {
 		gpus:      gpus,
 		leases:    make(map[int32]*gpupb.Lease),
 		returnGPU: make(chan *gpupb.Lease),
-		grace: grace,
+		grace:     grace,
 	}
 	go a.daemon()
 	return a
 }
+
+func (a *LocalAllocator) Get(x int32) *gpupb.GPU { return a.gpus[x] }
 
 func (a *LocalAllocator) daemon() {
 	for l := range a.returnGPU {
