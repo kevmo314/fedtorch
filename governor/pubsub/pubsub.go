@@ -4,16 +4,15 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/proto"
+	"github.com/kevmo314/fedtorch/governor/pubsub/local"
 
 	gpupb "github.com/kevmo314/fedtorch/governor/api/go/gpu"
 	dpb "google.golang.org/protobuf/types/known/durationpb"
-	tpb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -45,19 +44,7 @@ type GPUAllocator struct {
 	requestSub     *pubsub.Subscription
 	fulfillmentSub *pubsub.Subscription
 
-	l      sync.Mutex
-	gpus   []*gpupb.GPU
-	leases []*gpupb.Lease
-
-	/* x */
-	// gpuReturn is an internal pipeline to process GPU returns.
-	gpuReturn chan *gpupb.Lease
-
-	// gpuRequest is a pipeline to lease out local GPUs.
-	gpuRequest chan time.Duration
-
-	// gpuFulfillment is a response pipeline with GPU information.
-	gpuFulfillment chan *gpupb.Lease
+	local *local.Allocator
 }
 
 type O struct {
@@ -114,7 +101,7 @@ func New(ctx context.Context, o O) *GPUAllocator {
 		requestSub:     requestSub,
 		fulfillmentSub: fulfillmentSub,
 
-		gpus: o.GPUs,
+		local: local.New(o.GPUs, time.Minute),
 	}
 
 	fulfillmentMonitorSub, err := fulfillment.Subscribe(pubsub.WithBufferSize(0))
@@ -180,12 +167,12 @@ func (a *GPUAllocator) fulfillmentDaemon(ctx context.Context, monitor *pubsub.Su
 
 		// Local reservation requests are not published.
 		if peer.ID(req.GetRequestor()) != a.id {
-			g, err := a.reserveLocal(req.GetLease().AsDuration())
+			l, err := a.local.Reserve(req.GetLease().AsDuration())
 			if err == nil {
 				f, err := proto.Marshal(&gpupb.Fulfillment{
 					Requestor: req.GetRequestor(),
 					Token:     req.GetToken(),
-					Gpu:       g,
+					Gpu:       a.local.Get(l.GetId()),
 				})
 				if err != nil {
 					continue
@@ -194,46 +181,6 @@ func (a *GPUAllocator) fulfillmentDaemon(ctx context.Context, monitor *pubsub.Su
 			}
 		}
 	}
-}
-
-func (a *GPUAllocator) isAllocatedUnsafe(id int) bool {
-	for _, l := range a.leases {
-		if id == int(l.GetId()) && time.Now().Before(
-			l.GetExpiration().AsTime(),
-		) {
-			return true
-		}
-	}
-	return false
-}
-
-func (a *GPUAllocator) reserveLocal(lease time.Duration) (*gpupb.GPU, error) {
-	expiration := time.Now().Add(lease)
-	g, err := func() (*gpupb.GPU, error) {
-		a.l.Lock()
-		defer a.l.Unlock()
-
-		for _, g := range a.gpus {
-			if !a.isAllocatedUnsafe(int(g.GetId())) {
-				a.leases = append(a.leases, &gpupb.Lease{
-					Id:         g.GetId(),
-					Expiration: tpb.New(expiration),
-				})
-				return g, nil
-			}
-		}
-		return nil, fmt.Errorf("no local GPU available")
-	}()
-	if err != nil {
-		return nil, err
-	}
-
-	go func() {
-		<-time.After(time.Until(expiration))
-		a.dropLocal(int(g.GetId()))
-	}()
-
-	return g, nil
 }
 
 func (a *GPUAllocator) reserveRemote(ctx context.Context, lease time.Duration) (*gpupb.GPU, error) {
@@ -296,25 +243,8 @@ func (a *GPUAllocator) reserveRemote(ctx context.Context, lease time.Duration) (
 // Reserve allocates some GPU on a local or remote host for the specified amount
 // of time. This is called by the governor when planning for a workload.
 func (a *GPUAllocator) Reserve(ctx context.Context, lease time.Duration) (*gpupb.GPU, error) {
-	if g, err := a.reserveLocal(lease); err == nil {
-		return g, nil
+	if l, err := a.local.Reserve(lease); err == nil {
+		return a.local.Get(l.GetId()), nil
 	}
 	return a.reserveRemote(ctx, lease)
-}
-
-func (a *GPUAllocator) dropLocal(id int) error {
-	a.l.Lock()
-	defer a.l.Unlock()
-
-	n := len(a.leases)
-	for i := 0; i < n; i++ {
-		l := a.leases[i]
-		if id == int(l.GetId()) {
-			a.leases[i] = a.leases[n-1]
-			a.leases = a.leases[:n-1]
-			return nil
-		}
-	}
-
-	return fmt.Errorf("cannot find GPU %v", id)
 }

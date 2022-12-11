@@ -11,7 +11,7 @@ import (
 func TestReserve(t *testing.T) {
 	configs := []struct {
 		name string
-		a    *LocalAllocator
+		a    *Allocator
 		succ bool
 	}{
 		{
@@ -30,7 +30,7 @@ func TestReserve(t *testing.T) {
 		},
 		{
 			name: "Full",
-			a: &LocalAllocator{
+			a: &Allocator{
 				gpus: []*gpupb.GPU{
 					&gpupb.GPU{
 						Id: 100,

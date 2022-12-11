@@ -23,7 +23,7 @@ func generateToken() string {
 	return string(b)
 }
 
-type LocalAllocator struct {
+type Allocator struct {
 	// gpus is immutable after construction
 	gpus []*gpupb.GPU
 
@@ -34,8 +34,8 @@ type LocalAllocator struct {
 	grace     time.Duration
 }
 
-func New(gpus []*gpupb.GPU, grace time.Duration) *LocalAllocator {
-	a := &LocalAllocator{
+func New(gpus []*gpupb.GPU, grace time.Duration) *Allocator {
+	a := &Allocator{
 		gpus:      gpus,
 		leases:    make(map[int32]*gpupb.Lease),
 		returnGPU: make(chan *gpupb.Lease),
@@ -45,9 +45,9 @@ func New(gpus []*gpupb.GPU, grace time.Duration) *LocalAllocator {
 	return a
 }
 
-func (a *LocalAllocator) Get(x int32) *gpupb.GPU { return a.gpus[x] }
+func (a *Allocator) Get(x int32) *gpupb.GPU { return a.gpus[x] }
 
-func (a *LocalAllocator) daemon() {
+func (a *Allocator) daemon() {
 	for l := range a.returnGPU {
 		func() {
 			a.l.Lock()
@@ -69,7 +69,7 @@ func (a *LocalAllocator) daemon() {
 	}
 }
 
-func (a *LocalAllocator) Reserve(lease time.Duration) (*gpupb.Lease, error) {
+func (a *Allocator) Reserve(lease time.Duration) (*gpupb.Lease, error) {
 	t := generateToken()
 	expiration := time.Now().Add(lease).Add(a.grace)
 	g, err := func() (*gpupb.Lease, error) {
