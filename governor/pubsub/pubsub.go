@@ -10,7 +10,6 @@ import (
 	"github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/proto"
-	"gorgonia.org/cu"
 
 	gpupb "github.com/kevmo314/fedtorch/governor/api/go/gpu"
 	dpb "google.golang.org/protobuf/types/known/durationpb"
@@ -20,7 +19,18 @@ import (
 const (
 	GPURequestTopic     = "GPU_REQUEST"
 	GPUFulfillmentTopic = "GPU_FULFILLMENT"
+
+	tokenLength = 64
+	tokenSet    = "abcdefghijklmnopqrstuvwxyz" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ" + "0123456789"
 )
+
+func generateToken() string {
+	b := make([]byte, tokenLength)
+	for i := range b {
+		b[i] = tokenSet[rand.Intn(len(tokenSet))]
+	}
+	return string(b)
+}
 
 type GPUAllocator struct {
 	// id is the host ID as provided by the p2plib host.Host.ID(). The
@@ -40,6 +50,13 @@ type GPUAllocator struct {
 	leases []*gpupb.Lease
 }
 
+type O struct {
+	GovernorAddress string
+	PubSub          *pubsub.PubSub
+	P2PID           peer.ID
+	GPUs            []*gpupb.GPU
+}
+
 // New constructs a GPUAllocator daemon.
 //
 // The input pubsub instance is assumed to have already been started, as is the
@@ -57,12 +74,12 @@ type GPUAllocator struct {
 // exactly to use the reserved GPU.
 //
 // Motivated by https://medium.com/rahasak/libp2p-pubsub-with-golang-495539e6aae1.
-func New(ctx context.Context, governorAddress string, id peer.ID, ps *pubsub.PubSub) *GPUAllocator {
-	request, err := ps.Join(GPURequestTopic)
+func New(ctx context.Context, o O) *GPUAllocator {
+	request, err := o.PubSub.Join(GPURequestTopic)
 	if err != nil {
 		panic(fmt.Sprintf("could not join GPU request topic %v: %v", GPURequestTopic, err))
 	}
-	fulfillment, err := ps.Join(GPUFulfillmentTopic)
+	fulfillment, err := o.PubSub.Join(GPUFulfillmentTopic)
 	if err != nil {
 		panic(fmt.Sprintf("could not join GPU fulfillment topic %v: %v", GPUFulfillmentTopic, err))
 	}
@@ -78,8 +95,8 @@ func New(ctx context.Context, governorAddress string, id peer.ID, ps *pubsub.Pub
 	}
 
 	a := &GPUAllocator{
-		id:     id,
-		pubsub: ps,
+		id:     o.P2PID,
+		pubsub: o.PubSub,
 
 		request:     request,
 		fulfillment: fulfillment,
@@ -87,7 +104,7 @@ func New(ctx context.Context, governorAddress string, id peer.ID, ps *pubsub.Pub
 		requestSub:     requestSub,
 		fulfillmentSub: fulfillmentSub,
 
-		gpus: get(governorAddress),
+		gpus: o.GPUs,
 	}
 
 	fulfillmentMonitorSub, err := fulfillment.Subscribe(pubsub.WithBufferSize(0))
@@ -98,31 +115,6 @@ func New(ctx context.Context, governorAddress string, id peer.ID, ps *pubsub.Pub
 	go a.fulfillmentDaemon(ctx, fulfillmentMonitorSub)
 
 	return a
-}
-
-func get(addr string) []*gpupb.GPU {
-	n, err := cu.NumDevices()
-	if err != nil {
-		return nil
-	}
-
-	var devices []*gpupb.GPU
-	for d := 0; d < n; d++ {
-		dev := cu.Device(d)
-		name, _ := dev.Name()
-		cr, _ := dev.Attribute(cu.ClockRate)
-		mem, _ := dev.TotalMem()
-		g := &gpupb.GPU{
-			Addr:      addr,
-			Id:        int32(d),
-			Name:      name,
-			ClockRate: int32(cr),
-			Memory:    mem,
-		}
-		devices = append(devices, g)
-	}
-
-	return devices
 }
 
 // fulfillmentDaemon listens on the network for remote nodes that need GPUs.
@@ -235,7 +227,7 @@ func (a *GPUAllocator) reserveLocal(lease time.Duration) (*gpupb.GPU, error) {
 }
 
 func (a *GPUAllocator) reserveRemote(ctx context.Context, lease time.Duration) (*gpupb.GPU, error) {
-	token := "random-string"
+	token := generateToken()
 
 	req, err := proto.Marshal(&gpupb.Request{
 		Requestor: string(a.id),
