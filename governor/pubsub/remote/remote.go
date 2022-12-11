@@ -24,6 +24,34 @@ type Allocator struct {
 	wait time.Duration
 }
 
+type O struct {
+	Requests       <-chan *gpupb.Request
+	AmbientTraffic <-chan *gpupb.Fulfillment
+	Responses      chan<- *gpupb.Fulfillment
+
+	LocalAllocator *local.Allocator
+	WaitTime       time.Duration
+}
+
+func New(o O) *Allocator {
+	a := &Allocator{
+		requests:  o.Requests,
+		ambient:   o.AmbientTraffic,
+		responses: o.Responses,
+
+		returns:   make(chan string),
+		fulfilled: make(map[string]time.Time),
+		local:     o.LocalAllocator,
+		wait:      o.WaitTime,
+	}
+
+	go a.fulfiller()
+	go a.listener()
+	go a.cleaner()
+
+	return a
+}
+
 func (a *Allocator) fulfiller() {
 	for r := range a.requests {
 		time.Sleep(time.Duration((1 + rand.Float64()) * float64(a.wait)))
