@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"math/rand"
 	"sync"
 	"time"
 
@@ -25,7 +26,7 @@ type Allocator struct {
 
 func (a *Allocator) fulfiller() {
 	for r := range a.requests {
-		time.Sleep(a.wait)
+		time.Sleep(time.Duration((1 + rand.Float64()) * float64(a.wait)))
 
 		if l := func() *gpupb.Lease {
 			a.l.Lock()
