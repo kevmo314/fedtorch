@@ -10,22 +10,24 @@ import "google/protobuf/duration.proto";
 
 message GPU {
 	// addr is the address of the governor instance.
+	//
+	// TODO(minkezhang): Rename "host".
 	string addr = 1;
-
 	int32 id = 2;
+
 	string name = 3;
 	int64 memory = 4;
 	int32 clock_rate = 5;
 }
 
-// Lease is a local device lease.
 message Lease {
 	int32 id = 1;
-	string token = 2;
 
+	string token = 2;
 	google.protobuf.Timestamp expiration = 3;
 }
 
+// libp2p-specific pipe messages
 message Request {
 	string requestor = 1;
 	// It is possible for the same requestor to ask for multiple GPUs.
