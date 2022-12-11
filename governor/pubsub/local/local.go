@@ -10,10 +10,6 @@ import (
 	tpb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
-var (
-	grace = time.Minute
-)
-
 const (
 	tokenLength = 64
 	tokenSet    = "abcdefghijklmnopqrstuvwxyz" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ" + "0123456789"
@@ -33,19 +29,45 @@ type LocalAllocator struct {
 	leases map[int32]*gpupb.Lease
 
 	returnGPU chan *gpupb.Lease
+	grace time.Duration
 }
 
-func New(gpus []*gpupb.GPU) *LocalAllocator {
-	return &LocalAllocator{
+func New(gpus []*gpupb.GPU, grace time.Duration) *LocalAllocator {
+	a := &LocalAllocator{
 		gpus:      gpus,
 		leases:    make(map[int32]*gpupb.Lease),
 		returnGPU: make(chan *gpupb.Lease),
+		grace: grace,
+	}
+	go a.daemon()
+	return a
+}
+
+func (a *LocalAllocator) daemon() {
+	for l := range a.returnGPU {
+		func() {
+			a.l.Lock()
+			defer a.l.Unlock()
+
+			m, ok := a.leases[l.GetId()]
+			if !ok {
+				return
+			}
+
+			if l.GetToken() != m.GetToken() {
+				return
+			}
+
+			// Do not check expiration time -- it is possible for us
+			// to have an early return event.
+			delete(a.leases, l.GetId())
+		}()
 	}
 }
 
 func (a *LocalAllocator) Reserve(lease time.Duration) (*gpupb.Lease, error) {
 	t := generateToken()
-	expiration := time.Now().Add(lease)
+	expiration := time.Now().Add(lease).Add(a.grace)
 	g, err := func() (*gpupb.Lease, error) {
 		a.l.Lock()
 		defer a.l.Unlock()
@@ -69,7 +91,7 @@ func (a *LocalAllocator) Reserve(lease time.Duration) (*gpupb.Lease, error) {
 
 	if err != nil {
 		go func() {
-			time.After(time.Until(expiration) + grace)
+			time.After(time.Until(expiration))
 			a.returnGPU <- g
 		}()
 	}

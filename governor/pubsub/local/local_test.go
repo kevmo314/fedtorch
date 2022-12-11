@@ -16,7 +16,7 @@ func TestReserve(t *testing.T) {
 	}{
 		{
 			name: "Empty",
-			a:    New(nil),
+			a:    New(nil, 0),
 			succ: false,
 		},
 		{
@@ -25,7 +25,7 @@ func TestReserve(t *testing.T) {
 				&gpupb.GPU{
 					Id: 100,
 				},
-			}),
+			}, 0),
 			succ: true,
 		},
 		{
@@ -56,5 +56,24 @@ func TestReserve(t *testing.T) {
 				t.Errorf("Reserve() unexpectedly failed: %v", err)
 			}
 		})
+	}
+}
+
+func TestReturn(t *testing.T) {
+	a := New([]*gpupb.GPU{
+		&gpupb.GPU{
+			Id: 100,
+		},
+	}, 0)
+
+	l, err := a.Reserve(time.Second)
+	if err != nil {
+		t.Fatalf("Reserve unexpectedly failed: %v", err)
+	}
+
+	time.Sleep(time.Until(l.GetExpiration().AsTime()))
+
+	if _, err := a.Reserve(time.Second); err != nil {
+		t.Errorf("Reserve unexpectedly failed: %v", err)
 	}
 }
