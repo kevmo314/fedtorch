@@ -86,6 +86,6 @@ func (a *Allocator) Lease(req *gpupb.LeaseRequest) (*gpupb.LeaseResponse, error)
 	}
 	return &gpupb.LeaseResponse{
 		Requestor: req.GetRequestor(),
-		Lease: l,
+		Lease:     l,
 	}, err
 }

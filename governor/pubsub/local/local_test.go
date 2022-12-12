@@ -5,8 +5,8 @@ import (
 	"time"
 
 	gpupb "github.com/kevmo314/fedtorch/governor/api/go/gpu"
-	tpb "google.golang.org/protobuf/types/known/timestamppb"
 	dpb "google.golang.org/protobuf/types/known/durationpb"
+	tpb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestLease(t *testing.T) {
@@ -72,7 +72,7 @@ func TestReturn(t *testing.T) {
 	}, 0)
 
 	l, err := a.Lease(&gpupb.LeaseRequest{
-			Duration: dpb.New(time.Second),
+		Duration: dpb.New(time.Second),
 	})
 	if err != nil {
 		t.Fatalf("Lease unexpectedly failed: %v", err)
