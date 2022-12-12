@@ -26,7 +26,7 @@ message Lease {
 }
 
 message LeaseRequest {
-	// requestor is the peer ID.
+	// requestor is the libp2p peer ID.
 	string requestor = 1;
 
 	// It is possible for the same requestor to ask for multiple GPUs.
