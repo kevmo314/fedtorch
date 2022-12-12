@@ -194,8 +194,8 @@ test = ["pytest (>=3.0.0)"]
 
 [metadata]
 lock-version = "1.1"
-python-versions = "^3.10"
-content-hash = "f78d9e5e7e45613b369b13eb3eb7464acdbd6f2750c4b0561d55778582642000"
+python-versions = "^3.8"
+content-hash = "2846349f3b64648cd3484d0b131528d9c4006b69e39e8fd3c9921acd58e2729c"
 
 [metadata.files]
 certifi = [

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>Flaskr</title>
+        <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    </head>
+    <body>
+        <h1>FedTorch. Federated PyTorch. Not PyTorch for Feds.</h1>
+        <h2>Pending tasks</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Task ID</th>
+                    <th>Load</th>
+                    <th>Approve</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for task in pending_tasks %}
+                <tr>
+                    <td>{{ task.task_id }}</td>
+                    <td>{{ task.load }}</td>
+                    <td><a href="/tasks/{{ task.task_id }}/approve">Approve</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <h2>Active tasks</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Task ID</th>
+                    <th>Load</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for task in active_tasks %}
+                <tr>
+                    <td>{{ task.task_id }}</td>
+                    <td>{{ task.load }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <h2>Completed tasks</h2>
+
+        <h2>Failed tasks</h2>
+
+        <h2>Incoming offers</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Offer ID</th>
+                    <th>From</th>
+                    <th>Work Volume</th>
+                    <th>Bid Price</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for offer in offers %}
+                <tr>
+                    <td>{{ offer.offer_id }}</td>
+                    <td>{{ offer.host }}</td>
+                    <td>{{ offer.load }}</td>
+                    <td>{{ offer.bid }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </body>
+</html>
