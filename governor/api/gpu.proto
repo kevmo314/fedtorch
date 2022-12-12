@@ -26,7 +26,9 @@ message Lease {
 }
 
 message LeaseRequest {
+	// requestor is the peer ID.
 	string requestor = 1;
+
 	// It is possible for the same requestor to ask for multiple GPUs.
 	// Account for this by adding some unique data to each request.
 	string token = 2;

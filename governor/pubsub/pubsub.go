@@ -4,20 +4,21 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/kevmo314/fedtorch/governor/pubsub/local"
+	"github.com/kevmo314/fedtorch/governor/pubsub/remote"
 	"github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/proto"
 
 	gpupb "github.com/kevmo314/fedtorch/governor/api/go/gpu"
-	dpb "google.golang.org/protobuf/types/known/durationpb"
 )
 
 const (
-	GPURequestTopic     = "GPU_REQUEST"
-	GPUFulfillmentTopic = "GPU_FULFILLMENT"
+	LeaseRequestTopic  = "GPU_REQUEST"
+	LeaseResponseTopic = "GPU_FULFILLMENT"
 
 	tokenLength = 64
 	tokenSet    = "abcdefghijklmnopqrstuvwxyz" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ" + "0123456789"
@@ -31,12 +32,7 @@ func generateToken() string {
 	return string(b)
 }
 
-func pub[T proto.Message](ctx context.Context, pubsub *pubsub.PubSub, topic string) chan<- T {
-	t, err := pubsub.Join(topic)
-	if err != nil {
-		panic(fmt.Sprintf("cannot join topic %v: %v", topic, err))
-	}
-
+func pub[T proto.Message](ctx context.Context, t *pubsub.Topic) chan<- T {
 	ch := make(chan T)
 	go func() {
 		for msg := range ch {
@@ -69,7 +65,7 @@ func sub[T proto.Message](ctx context.Context, t *pubsub.Topic, f func(pb T) boo
 				continue
 			}
 
-			if !f(pb) {
+			if f(pb) {
 				ch <- pb
 			}
 		}
@@ -77,30 +73,33 @@ func sub[T proto.Message](ctx context.Context, t *pubsub.Topic, f func(pb T) boo
 	return ch
 }
 
-type GPUAllocator struct {
-	// id is the host ID as provided by the p2plib host.Host.ID(). The
-	// allocator does not track the host, and therefore this data needs to
-	// be passed in explicitly.
-	id peer.ID
-
-	pubsub      *pubsub.PubSub
-	request     *pubsub.Topic
-	fulfillment *pubsub.Topic
-
-	requestSub     *pubsub.Subscription
-	fulfillmentSub *pubsub.Subscription
-
-	local *local.Allocator
-}
-
 type O struct {
 	GovernorAddress string
 	PubSub          *pubsub.PubSub
-	P2PID           peer.ID
+	PeerID          peer.ID
 	GPUs            []*gpupb.GPU
 }
 
-// New constructs a GPUAllocator daemon.
+type Allocator struct {
+	reqPub  chan<- *gpupb.LeaseRequest
+	reqSub  <-chan *gpupb.LeaseRequest
+	respPub chan<- *gpupb.LeaseResponse
+	respSub <-chan *gpupb.LeaseResponse
+
+	// responses keeps track of requests issued locally which have returned
+	// from a remote fulfillment. This struct listens to the respSub
+	// channel.
+	responses map[string]*gpupb.LeaseResponse
+	l         sync.Mutex
+	clean     chan string
+
+	remote *remote.Allocator
+	local  *local.Allocator
+
+	timeout time.Duration
+}
+
+// New constructs a Allocator daemon.
 //
 // The input pubsub instance is assumed to have already been started, as is the
 // governor.
@@ -116,181 +115,117 @@ type O struct {
 // may be remote. The governor should negotiate with the remote governor on how
 // exactly to use the reserved GPU.
 //
-// Motivated by https://medium.com/rahasak/libp2p-pubsub-with-golang-495539e6aae1.
-func New(ctx context.Context, o O) *GPUAllocator {
-	request, err := o.PubSub.Join(GPURequestTopic)
+// Motivated by
+// https://medium.com/rahasak/libp2p-pubsub-with-golang-495539e6aae1.
+func New(ctx context.Context, o O, timeout time.Duration) *Allocator {
+	const fuzz = 15 * time.Second
+	if timeout < 2*fuzz {
+		panic(fmt.Sprintf("remote fulfillment request timeout %v does not account for backoff fuzzing time %v", timeout, 2*fuzz))
+	}
+
+	requestT, err := o.PubSub.Join(LeaseRequestTopic)
 	if err != nil {
-		panic(fmt.Sprintf("could not join GPU request topic %v: %v", GPURequestTopic, err))
+		panic(fmt.Sprintf("cannot join request topic %v: %v", LeaseRequestTopic, err))
 	}
-	fulfillment, err := o.PubSub.Join(GPUFulfillmentTopic)
+
+	responseT, err := o.PubSub.Join(LeaseResponseTopic)
 	if err != nil {
-		panic(fmt.Sprintf("could not join GPU fulfillment topic %v: %v", GPUFulfillmentTopic, err))
+		panic(fmt.Sprintf("cannot join response topic %v: %v", LeaseResponseTopic, err))
 	}
 
-	requestSub, err := request.Subscribe(pubsub.WithBufferSize(0))
-	if err != nil {
-		panic(fmt.Sprintf("could not subscribe to the GPU request topic %v: %v", GPURequestTopic, err))
+	localAllocator := local.New(o.GPUs, time.Minute)
+
+	a := &Allocator{
+		reqPub: pub[*gpupb.LeaseRequest](ctx, requestT),
+		reqSub: sub[*gpupb.LeaseRequest](ctx, requestT, func(pb *gpupb.LeaseRequest) bool {
+			return peer.ID(pb.GetRequestor()) != o.PeerID
+		}),
+
+		respPub: pub[*gpupb.LeaseResponse](ctx, responseT),
+		respSub: sub[*gpupb.LeaseResponse](ctx, responseT, func(pb *gpupb.LeaseResponse) bool {
+			return peer.ID(pb.GetRequestor()) == o.PeerID
+		}),
+
+		remote: remote.New(remote.O{
+			AmbientTraffic: sub[*gpupb.LeaseResponse](ctx, responseT, func(pb *gpupb.LeaseResponse) bool {
+				return peer.ID(pb.GetRequestor()) != o.PeerID
+			}),
+		}, fuzz),
+		local:   localAllocator,
+		timeout: timeout,
 	}
 
-	fulfillmentSub, err := fulfillment.Subscribe(pubsub.WithBufferSize(0))
-	if err != nil {
-		panic(fmt.Sprintf("could not subscribe to the GPU fulfillment response topic %v: %v", GPUFulfillmentTopic, err))
-	}
-
-	a := &GPUAllocator{
-		id:     o.P2PID,
-		pubsub: o.PubSub,
-
-		request:     request,
-		fulfillment: fulfillment,
-
-		requestSub:     requestSub,
-		fulfillmentSub: fulfillmentSub,
-
-		local: local.New(o.GPUs, time.Minute),
-	}
-
-	fulfillmentMonitorSub, err := fulfillment.Subscribe(pubsub.WithBufferSize(0))
-	if err != nil {
-		panic(fmt.Sprintf("could not subscribe to the GPU fulfillment monitoring topic %v: %v", GPUFulfillmentTopic, err))
-	}
-
-	go a.fulfillmentDaemon(ctx, fulfillmentMonitorSub)
+	go a.daemon()
+	go a.cleaner()
+	go a.listener()
 
 	return a
 }
 
-// fulfillmentDaemon listens on the network for remote nodes that need GPUs.
-// Because this is a distributed system, it is possible for multiple nodes to
-// receive the same remote node request. In order to limit the amount of
-// duplicated reservations, we will do a random backoff.
-//
-// TODO(minkezhang): Use a Allocate / Reserve / Free model instead in v2 in
-// which the gRPC server explicitly checks out a GPU for some period of time;
-// in the meantime, temporarily lease out the GPU for ~5min.
-func (a *GPUAllocator) fulfillmentDaemon(ctx context.Context, monitor *pubsub.Subscription) {
-	for {
-		msg, err := a.requestSub.Next(ctx)
+func (a *Allocator) daemon() {
+	for req := range a.reqSub {
+		resp, err := a.remote.Lease(req)
 		if err != nil {
 			continue
 		}
 
-		req := &gpupb.Request{}
-		if err := proto.Unmarshal(msg.Data, req); err != nil {
-			continue
-		}
-
-		// Wait some time and see if another fulfillment has already
-		// happened.
-		n := int(rand.Int31n(10) + 10)
-		waitCtx, cancel := context.WithDeadline(ctx, time.Now().Add(time.Duration(n*int(time.Second))))
-		if !func(ctx context.Context) bool {
-			defer cancel()
-
-			for {
-				msg, err := monitor.Next(ctx)
-				if err != nil {
-					return true
-				}
-
-				f := &gpupb.Fulfillment{}
-				if err := proto.Unmarshal(msg.Data, f); err != nil {
-					continue
-				}
-
-				if peer.ID(f.GetRequestor()) == peer.ID(req.GetRequestor()) {
-					if f.GetToken() == req.GetToken() {
-						return false
-					}
-				}
-			}
-
-			// No fulfillment messages have occurred yet.
-			return true
-		}(waitCtx) {
-			continue
-		}
-
-		// Local reservation requests are not published.
-		if peer.ID(req.GetRequestor()) != a.id {
-			l, err := a.local.Reserve(req.GetLease().AsDuration())
-			if err == nil {
-				f, err := proto.Marshal(&gpupb.Fulfillment{
-					Requestor: req.GetRequestor(),
-					Token:     req.GetToken(),
-					Gpu:       a.local.Get(l.GetId()),
-				})
-				if err != nil {
-					continue
-				}
-				a.fulfillment.Publish(ctx, f)
-			}
-		}
+		a.respPub <- resp
 	}
 }
 
-func (a *GPUAllocator) reserveRemote(ctx context.Context, lease time.Duration) (*gpupb.GPU, error) {
-	token := generateToken()
+func (a *Allocator) listener() {
+	for resp := range a.respSub {
+		a.l.Lock()
 
-	req, err := proto.Marshal(&gpupb.Request{
-		Requestor: string(a.id),
-		Lease:     dpb.New(lease),
-		Token:     token,
-	})
+		a.responses[resp.GetLease().GetToken()] = resp
+
+		a.l.Unlock()
+
+		go func(resp *gpupb.LeaseResponse) {
+			time.Sleep(time.Until(resp.GetLease().GetExpiration().AsTime()))
+			a.clean <- resp.GetLease().GetToken()
+		}(resp)
+	}
+}
+
+func (a *Allocator) cleaner() {
+	for x := range a.clean {
+		a.l.Lock()
+
+		delete(a.responses, x)
+
+		a.l.Unlock()
+	}
+}
+
+// Lease fulfills a local host's allocation request.
+func (a *Allocator) Lease(req *gpupb.LeaseRequest) (*gpupb.LeaseResponse, error) {
+	resp, err := a.local.Lease(req)
+	if err == nil {
+		return resp, nil
+	}
+
+	// Try a remote lease request.
 	if err != nil {
-		return nil, err
-	}
-	err = nil
-
-	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(time.Minute))
-
-	var g *gpupb.GPU
-	go func(ctx context.Context) {
-		// cancelling here means the next request.Publish call may be
-		// cut off early. This is probably okay, but will incur some
-		// non-zero reservation penalty (i.e. a useless reservation on
-		// the network).
-		//
-		// TODO(minkezhang): Rewrite the network code to be more
-		// stateful.
-		defer cancel()
-		for {
-			msg, terr := a.fulfillmentSub.Next(ctx)
-			if terr != nil {
-				err = terr
-				return
-			}
-
-			if msg.ReceivedFrom == a.id {
-				continue
-			}
-
-			f := &gpupb.Fulfillment{}
-			if terr := proto.Unmarshal(msg.Data, f); terr != nil {
-				continue
-			}
-
-			// A fulfillment request has been made on behalf of the
-			// local node.
-			if peer.ID(f.GetRequestor()) == a.id && f.GetToken() == token {
-				g = f.GetGpu()
-				return
-			}
+		select {
+		case <-time.After(a.timeout):
+			return nil, fmt.Errorf("could not write GPU lease request to the network")
+		case a.reqPub <- req:
 		}
-	}(ctx)
 
-	a.request.Publish(ctx, req)
-
-	<-ctx.Done()
-
-	return g, err
-}
-
-// Reserve allocates some GPU on a local or remote host for the specified amount
-// of time. This is called by the governor when planning for a workload.
-func (a *GPUAllocator) Reserve(ctx context.Context, lease time.Duration) (*gpupb.GPU, error) {
-	if l, err := a.local.Reserve(lease); err == nil {
-		return a.local.Get(l.GetId()), nil
+		// Wait for a remote fulfillment.
+		timeout := time.Now().Add(a.timeout)
+		for time.Now().Before(timeout) {
+			if resp, ok := func() (*gpupb.LeaseResponse, bool) {
+				a.l.Lock()
+				defer a.l.Unlock()
+				resp, ok := a.responses[req.GetToken()]
+				return resp, ok
+			}(); ok {
+				return resp, nil
+			}
+			time.Sleep(time.Second)
+		}
 	}
-	return a.reserveRemote(ctx, lease)
+	return nil, fmt.Errorf("could not find a free GPU on the network")
 }
