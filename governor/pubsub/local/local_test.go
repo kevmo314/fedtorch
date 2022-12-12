@@ -6,9 +6,10 @@ import (
 
 	gpupb "github.com/kevmo314/fedtorch/governor/api/go/gpu"
 	tpb "google.golang.org/protobuf/types/known/timestamppb"
+	dpb "google.golang.org/protobuf/types/known/durationpb"
 )
 
-func TestReserve(t *testing.T) {
+func TestLease(t *testing.T) {
 	configs := []struct {
 		name string
 		a    *Allocator
@@ -38,7 +39,9 @@ func TestReserve(t *testing.T) {
 				},
 				leases: map[int32]*gpupb.Lease{
 					100: &gpupb.Lease{
-						Id:         100,
+						Gpu: &gpupb.GPU{
+							Id: 100,
+						},
 						Expiration: tpb.New(time.Now().Add(time.Hour)),
 					},
 				},
@@ -49,11 +52,13 @@ func TestReserve(t *testing.T) {
 
 	for _, c := range configs {
 		t.Run(c.name, func(t *testing.T) {
-			l, err := c.a.Reserve(time.Minute)
+			l, err := c.a.Lease(&gpupb.LeaseRequest{
+				Duration: dpb.New(time.Minute),
+			})
 			if !c.succ && err == nil {
-				t.Errorf("Reserve() unexpectedly succeeded: %v", l)
+				t.Errorf("Lease() unexpectedly succeeded: %v", l)
 			} else if c.succ && err != nil {
-				t.Errorf("Reserve() unexpectedly failed: %v", err)
+				t.Errorf("Lease() unexpectedly failed: %v", err)
 			}
 		})
 	}
@@ -66,14 +71,18 @@ func TestReturn(t *testing.T) {
 		},
 	}, 0)
 
-	l, err := a.Reserve(time.Second)
+	l, err := a.Lease(&gpupb.LeaseRequest{
+			Duration: dpb.New(time.Second),
+	})
 	if err != nil {
-		t.Fatalf("Reserve unexpectedly failed: %v", err)
+		t.Fatalf("Lease unexpectedly failed: %v", err)
 	}
 
-	time.Sleep(time.Until(l.GetExpiration().AsTime()))
+	time.Sleep(time.Until(l.GetLease().GetExpiration().AsTime()))
 
-	if _, err := a.Reserve(time.Second); err != nil {
-		t.Errorf("Reserve unexpectedly failed: %v", err)
+	if _, err := a.Lease(&gpupb.LeaseRequest{
+		Duration: dpb.New(time.Second),
+	}); err != nil {
+		t.Errorf("Lease unexpectedly failed: %v", err)
 	}
 }

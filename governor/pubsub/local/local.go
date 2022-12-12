@@ -2,26 +2,12 @@ package local
 
 import (
 	"fmt"
-	"math/rand"
 	"sync"
 	"time"
 
 	gpupb "github.com/kevmo314/fedtorch/governor/api/go/gpu"
 	tpb "google.golang.org/protobuf/types/known/timestamppb"
 )
-
-const (
-	tokenLength = 64
-	tokenSet    = "abcdefghijklmnopqrstuvwxyz" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ" + "0123456789"
-)
-
-func generateToken() string {
-	b := make([]byte, tokenLength)
-	for i := range b {
-		b[i] = tokenSet[rand.Intn(len(tokenSet))]
-	}
-	return string(b)
-}
 
 type Allocator struct {
 	// gpus is immutable after construction
@@ -53,7 +39,7 @@ func (a *Allocator) daemon() {
 			a.l.Lock()
 			defer a.l.Unlock()
 
-			m, ok := a.leases[l.GetId()]
+			m, ok := a.leases[l.GetGpu().GetId()]
 			if !ok {
 				return
 			}
@@ -64,14 +50,13 @@ func (a *Allocator) daemon() {
 
 			// Do not check expiration time -- it is possible for us
 			// to have an early return event.
-			delete(a.leases, l.GetId())
+			delete(a.leases, l.GetGpu().GetId())
 		}()
 	}
 }
 
-func (a *Allocator) Reserve(lease time.Duration) (*gpupb.Lease, error) {
-	t := generateToken()
-	expiration := time.Now().Add(lease).Add(a.grace)
+func (a *Allocator) Lease(req *gpupb.LeaseRequest) (*gpupb.LeaseResponse, error) {
+	expiration := time.Now().Add(req.GetDuration().AsDuration()).Add(a.grace)
 	l, err := func() (*gpupb.Lease, error) {
 		a.l.Lock()
 		defer a.l.Unlock()
@@ -80,8 +65,8 @@ func (a *Allocator) Reserve(lease time.Duration) (*gpupb.Lease, error) {
 			l, ok := a.leases[g.GetId()]
 			if !ok || time.Now().After(l.GetExpiration().AsTime()) {
 				m := &gpupb.Lease{
-					Token:      t,
-					Id:         g.GetId(),
+					Token:      req.GetToken(),
+					Gpu:        g,
 					Expiration: tpb.New(expiration),
 				}
 				a.leases[g.GetId()] = m
@@ -99,5 +84,8 @@ func (a *Allocator) Reserve(lease time.Duration) (*gpupb.Lease, error) {
 			a.returnGPU <- l
 		}(l)
 	}
-	return l, err
+	return &gpupb.LeaseResponse{
+		Requestor: req.GetRequestor(),
+		Lease: l,
+	}, err
 }
