@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -11,12 +12,12 @@ import (
 )
 
 type Allocator struct {
-	ambient   <-chan *gpupb.Fulfillment
-	responses chan<- *gpupb.Fulfillment
-	returns   chan string
+	ambient   <-chan *gpupb.LeaseResponse
+	responses chan<- *gpupb.LeaseResponse
+	returns   chan *gpupb.LeaseResponse
 
 	l         sync.Mutex
-	fulfilled map[string]time.Time
+	fulfilled map[string]*gpupb.LeaseResponse
 
 	local *local.Allocator
 
@@ -24,8 +25,7 @@ type Allocator struct {
 }
 
 type O struct {
-	AmbientTraffic <-chan *gpupb.Fulfillment
-	Responses      chan<- *gpupb.Fulfillment
+	AmbientTraffic <-chan *gpupb.LeaseResponse
 
 	LocalAllocator *local.Allocator
 	WaitTime       time.Duration
@@ -33,11 +33,10 @@ type O struct {
 
 func New(o O) *Allocator {
 	a := &Allocator{
-		ambient:   o.AmbientTraffic,
-		responses: o.Responses,
+		ambient: o.AmbientTraffic,
 
-		returns:   make(chan string),
-		fulfilled: make(map[string]time.Time),
+		returns:   make(chan *gpupb.LeaseResponse),
+		fulfilled: make(map[string]*gpupb.LeaseResponse),
 		local:     o.LocalAllocator,
 		wait:      o.WaitTime,
 	}
@@ -48,7 +47,8 @@ func New(o O) *Allocator {
 	return a
 }
 
-func (a *Allocator) Lease(req *gpupb.LeaseRequest) {
+// Lease attempts to reserve a GPU for the incoming remote lease request.
+func (a *Allocator) Lease(req *gpupb.LeaseRequest) (*gpupb.LeaseResponse, error) {
 	// Fuzz sleep for a bit in case someone else responds to the same
 	// request.
 	time.Sleep(time.Duration((1 + rand.Float64()) * float64(a.wait)))
@@ -58,63 +58,55 @@ func (a *Allocator) Lease(req *gpupb.LeaseRequest) {
 
 	// Check local cache to see if this request has already been fulfilled.
 	if _, ok := a.fulfilled[req.GetToken()]; ok {
-		return nil
+		return nil, fmt.Errorf("request already filled")
 	}
 
 	// Attempt to reserve local GPU.
-	
-
-	if l := func() *gpupb.Lease {
-		a.l.Lock()
-		defer a.l.Unlock()
-
-		if _, ok := a.fulfilled[r.GetToken()]; ok {
-			return nil
-		}
-
-		l, err := a.local.Reserve(r.GetLease().AsDuration())
-		if err != nil {
-			return nil
-		}
-
-		return l
-	}(); l != nil {
-		a.responses <- &gpupb.Fulfillment{
-			Requestor: r.GetRequestor(),
-
-			Gpu:   a.local.Get(l.GetId()),
-			Lease: l,
-		}
-
-		go func(l *gpupb.Lease) {
-			time.Sleep(time.Until(l.GetExpiration().AsTime()))
-			a.returns <- l.GetToken()
-		}(l)
+	resp, err := a.local.Lease(req)
+	if err != nil {
+		return nil, err
 	}
+
+	go func(resp *gpupb.LeaseResponse) {
+		time.Sleep(time.Until(resp.GetLease().GetExpiration().AsTime()))
+		a.returns <- resp
+	}(resp)
+
+	return resp, nil
 }
 
 func (a *Allocator) listener() {
-	for r := range a.ambient {
+	for resp := range a.ambient {
 		a.l.Lock()
 
-		a.fulfilled[r.GetToken()] = r.GetLease().GetExpiration().AsTime()
+		a.fulfilled[resp.GetLease().GetToken()] = resp
 
 		a.l.Unlock()
 
-		go func(r *gpupb.Fulfillment) {
-			time.Sleep(time.Until(r.GetLease().GetExpiration().AsTime()))
-			a.returns <- r.GetToken()
-		}(r)
+		go func(resp *gpupb.LeaseResponse) {
+			time.Sleep(time.Until(resp.GetLease().GetExpiration().AsTime()))
+			a.returns <- resp
+		}(resp)
 	}
 }
 
 func (a *Allocator) cleaner() {
-	for x := range a.returns {
-		a.l.Lock()
+	for resp := range a.returns {
+		func() {
+			a.l.Lock()
+			defer a.l.Unlock()
 
-		// Do not check expiration time.
-		delete(a.fulfilled, x)
+			m, ok := a.fulfilled[resp.GetLease().GetToken()]
+			if !ok {
+				return
+			}
 
-		a.l.Unlock()
+			if resp.GetRequestor() != m.GetRequestor() {
+				return
+			}
+
+			// Do not check expiration time.
+			delete(a.fulfilled, resp.GetLease().GetToken())
+		}()
 	}
 }
