@@ -31,7 +31,12 @@ func generateToken() string {
 	return string(b)
 }
 
-func PubChannel[T proto.Message](ctx context.Context, t *pubsub.Topic) chan<- T {
+func pub[T proto.Message](ctx context.Context, pubsub *pubsub.PubSub, topic string) chan<- T {
+	t, err := pubsub.Join(topic)
+	if err != nil {
+		panic(fmt.Sprintf("cannot join topic %v: %v", topic, err))
+	}
+
 	ch := make(chan T)
 	go func() {
 		for msg := range ch {
@@ -45,7 +50,12 @@ func PubChannel[T proto.Message](ctx context.Context, t *pubsub.Topic) chan<- T 
 	return ch
 }
 
-func SubChannel[T proto.Message](ctx context.Context, s *pubsub.Subscription, f func(pb T) bool) <-chan T {
+func sub[T proto.Message](ctx context.Context, t *pubsub.Topic, f func(pb T) bool) <-chan T {
+	s, err := t.Subscribe(pubsub.WithBufferSize(0))
+	if err != nil {
+		panic(fmt.Sprintf("cannot subscribe to topic %v: %v", t.String(), err))
+	}
+
 	ch := make(chan T)
 	go func() {
 		for {
