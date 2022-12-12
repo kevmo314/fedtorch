@@ -13,7 +13,6 @@ import (
 
 type Allocator struct {
 	ambient   <-chan *gpupb.LeaseResponse
-	responses chan<- *gpupb.LeaseResponse
 	returns   chan *gpupb.LeaseResponse
 
 	l         sync.Mutex
