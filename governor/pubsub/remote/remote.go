@@ -12,8 +12,8 @@ import (
 )
 
 type Allocator struct {
-	ambient   <-chan *gpupb.LeaseResponse
-	returns   chan *gpupb.LeaseResponse
+	ambient <-chan *gpupb.LeaseResponse
+	returns chan *gpupb.LeaseResponse
 
 	l         sync.Mutex
 	fulfilled map[string]*gpupb.LeaseResponse
@@ -27,17 +27,16 @@ type O struct {
 	AmbientTraffic <-chan *gpupb.LeaseResponse
 
 	LocalAllocator *local.Allocator
-	WaitTime       time.Duration
 }
 
-func New(o O) *Allocator {
+func New(o O, wait time.Duration) *Allocator {
 	a := &Allocator{
 		ambient: o.AmbientTraffic,
 
 		returns:   make(chan *gpupb.LeaseResponse),
 		fulfilled: make(map[string]*gpupb.LeaseResponse),
 		local:     o.LocalAllocator,
-		wait:      o.WaitTime,
+		wait:      wait,
 	}
 
 	go a.listener()
