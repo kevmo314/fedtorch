@@ -31,6 +31,42 @@ func generateToken() string {
 	return string(b)
 }
 
+func PubChannel[T proto.Message](ctx context.Context, t *pubsub.Topic) chan<- T {
+	ch := make(chan T)
+	go func() {
+		for msg := range ch {
+			data, err := proto.Marshal(msg)
+			if err != nil {
+				continue
+			}
+			t.Publish(ctx, data)
+		}
+	}()
+	return ch
+}
+
+func SubChannel[T proto.Message](ctx context.Context, s *pubsub.Subscription, f func(pb T) bool) <-chan T {
+	ch := make(chan T)
+	go func() {
+		for {
+			msg, err := s.Next(ctx)
+			if err != nil {
+				return
+			}
+
+			var pb T
+			if err := proto.Unmarshal(msg.Data, pb); err != nil {
+				continue
+			}
+
+			if !f(pb) {
+				ch <- pb
+			}
+		}
+	}()
+	return ch
+}
+
 type GPUAllocator struct {
 	// id is the host ID as provided by the p2plib host.Host.ID(). The
 	// allocator does not track the host, and therefore this data needs to
