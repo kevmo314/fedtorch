@@ -17,4 +17,5 @@ COPY poetry.lock pyproject.toml ./
 RUN poetry install
 
 COPY . /app
-CMD [ "poetry", "run", "python", "-m", "flask", "--app", "main", "run" ]
+# CMD [ "poetry", "run", "python", "-m", "flask", "--app", "main", "run" ]
+CMD [ "poetry", "run", "python", "main.py" ]

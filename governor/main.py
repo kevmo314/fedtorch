@@ -1,12 +1,26 @@
 from flask import Flask, request, render_template, redirect
 import asyncio
 import json
-from . import api
+import api
 import time
 import torch
 import io
 
+
+from activitypub.manager import FlaskManager as M
+from activitypub.database import ListDatabase as DB
+
+db = DB()
+uuid = "some-uuid"
 app = Flask(__name__)
+manager = M(database=db)
+p = manager.Person(id=uuid).to_dict()
+
+
+@app.before_first_request
+def generate_activitypub_client_actor():
+    db.actors.insert_one(p)
+
 
 @app.route("/")
 def index():
@@ -77,5 +91,10 @@ def work():
         return "Missing config", 400
     if "payload" not in body:
         return "Missing payload", 400
-    
+
     return json.dumps(api.work(body["job_id"], body["config"], body["payload"]))
+
+
+if __name__ == '__main__':
+    app.run(host='localhost', debug=True)
+
