@@ -3,6 +3,7 @@ TODO(minkezhang): Use ActivityPub for a more formal federated framework.
 """
 import threading
 import datetime
+import torch
 
 neighbors_lock = threading.Lock()
 neighbors = [
@@ -10,14 +11,14 @@ neighbors = [
     # {"user": "12345678-1234-5678-1234-567812345678", "host": "8.8.8.8:5000"},
 ]
 
+
 gpus_lock = threading.Lock()
 gpus = [
     {
-        "id": 0,
+        "id": i,
         "task_id": "",
         "expiration": datetime.datetime.now(),
-    },
-    # {"id": 0, "task_id": ..., "expiration": datetime },
+    } for i in range(torch.cuda.device_count())
 ]
 
 # Remote server should update its list of neighbors and remove from its local
