@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, redirect
+from flask import Flask, request, render_template, redirect, Response
 import asyncio
 import json
 from absl import flags
@@ -6,6 +6,7 @@ from absl import app as absl_app
 import requests
 import uuid
 
+import sys
 import api
 import federated
 
@@ -58,7 +59,6 @@ def pubsub_join():
         },
     ])
 
-    app.logger.info('DEBUG: neighbors = %s', neighbors)
     # The UUID of the local instance is always the first item in the neighbor
     # list.
     uid = neighbors[0]["user"]
@@ -75,6 +75,7 @@ def pubsub_probe():
     Payload:
         {
             "task_id": "some-task-id",
+            "target": "target-id",
         }
 
     Returns:
@@ -85,11 +86,15 @@ def pubsub_probe():
         }
     """
 
-    return federated.reserve({
-        "id": -1,
-        "task_id": request.get_json()["task_id"],
-        "lease": datetime.timedelta(seconds=60),
-    })
+    try:
+        return federated.reserve({
+            "target_id": request.get_json()["target_id"],
+            "id": -1,
+            "task_id": request.get_json()["task_id"],
+            "lease": datetime.timedelta(seconds=60),
+        })
+    except federated.ServerGone as e:
+        return Response(f"requested server is gone: {e}", status=409)
 
 @app.route("/pubsub/extend", methods=["POST"])
 def pubsub_extend():
@@ -110,11 +115,15 @@ def pubsub_extend():
             "expiration": datetime.strftime(...),
         }
     """
-    return federated.reserve({
-        "id": request.get_json()["id"],
-        "task_id": request.get_json()["task_id"],
-        "lease": datetime.timedelta(seconds=request.get_json()["lease"]),
-    })
+    try:
+        return federated.reserve({
+            "target_id": request.get_json()["target_id"],
+            "id": request.get_json()["id"],
+            "task_id": request.get_json()["task_id"],
+            "lease": datetime.timedelta(seconds=request.get_json()["lease"]),
+        })
+    except federated.ServerGone:
+        return Response("requested server is gone", status=409)
 
 @app.route("/tasks/<task_id>/approve")
 def approve_task(task_id):
@@ -193,7 +202,7 @@ def link():
 
     # Add self.
     uid = str(uuid.uuid4())
-    print(f"DEBUG: link uuid {uid}, this should only be called once per server port instance -----------------------")
+
     federated.merge([
         {
             "user": uid,
@@ -213,9 +222,8 @@ def link():
                 "host": p,
             }] + data["neighbors"])
 
-def main(argv):
-    link()
-    app.run(host='localhost', debug=True, port=_PORT.value)
-
 if __name__ == '__main__':
-    absl_app.run(main)
+    absl_app.parse_flags_with_usage(sys.argv)
+    link()  # This is being called twice due to server restarts.
+
+    app.run(host='localhost', debug=True, port=_PORT.value)
