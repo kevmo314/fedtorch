@@ -6,7 +6,8 @@ import datetime
 
 neighbors_lock = threading.Lock()
 neighbors = [
-    # {"user": "12345678-1234-5678-1234-567812345678", "host": "8.8.8.8"},
+    # First entry is always self.
+    # {"user": "12345678-1234-5678-1234-567812345678", "host": "8.8.8.8:5000"},
 ]
 
 gpus_lock = threading.Lock()
@@ -45,23 +46,20 @@ def reserve(lease):
     return v
 
 
-def join(n):
+def merge(updates):
+    print(f"Merging: {updates}")
     neighbors_lock.acquire()
-    neighbors.append(n)
-    neighbors_lock.release()
-    return neighbors
-
-
-def merge(update):
-    neighbors_lock.acquire()
+    vs = []
     try:
         uuids = set([x["user"] for x in neighbors])
-        for n in update:
+        for n in updates:
             if n["user"] not in uuids:
                 uuids.add(n["user"])
                 neighbors.append(n)
+        vs = [dict(x) for x in neighbors]
     finally:
         neighbors_lock.release()
+    return vs
 
 
 def drop(n):

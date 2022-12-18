@@ -1,6 +1,10 @@
 from flask import Flask, request, render_template, redirect
 import asyncio
 import json
+from absl import flags
+from absl import app as absl_app
+import requests
+import uuid
 
 import api
 import federated
@@ -10,6 +14,8 @@ import datetime
 import torch
 import io
 
+_PEERS = flags.DEFINE_multi_string('peers', None, 'list of upstream instances, e.g. "8.8.8.8:5000')
+_PORT = flags.DEFINE_integer('port', 5000, 'serving port')
 
 app = Flask(__name__)
 
@@ -23,12 +29,39 @@ def index():
 
 @app.route("/pubsub/join", methods=["POST"])
 def pubsub_join():
-    return federated.join({
-        "user": request.get_json()["user"],
-        # Federated address. Assuming 5000 for now.
-        # TODO(minkezhang): Allow a user-supplied port value.
-        "host": f'{request.remote_addr}:5000',
-    })
+    """
+    Add a remote client to the local neighbors copy. Report back to the caller
+    the current list of neighbors.
+
+    Payload:
+        {
+            "user": "remote-uuid",
+            "port": "5000",
+        }
+
+    Returns:
+        {
+            "user": "local-uuid",
+            "neighbors": [
+                {
+                    "user": "neighbor-uuid",
+                    "host": "8.8.8.8:5000",
+                },
+            ],
+        }
+    """
+    neighbors = federated.merge([
+        {
+            "user": request.get_json()["user"],
+            "host": f'{request.remote_addr}:{request.get_json()["port"]}',
+        },
+    ])
+
+    uuid = neighbors[0]["user"]
+    return {
+        "user": uuid,
+        "neighbors": neighbors[1:],
+    }
 
 @app.route("/pubsub/probe", methods=["POST"])
 def pubsub_probe():
@@ -142,7 +175,42 @@ def work():
 
     return json.dumps(api.work(body["job_id"], body["config"], body["payload"]))
 
+def link():
+    """
+    Links app with other instances.
+
+    N.B.: This will have a race condition, since there is some amount of time
+    between this set of requests are processed and when this server is actually
+    up.
+    """
+    peers = _PEERS.value
+    if peers is None:
+        peers = []
+
+    # Add self.
+    uid = str(uuid.uuid4())
+    federated.merge([
+        {
+            "user": uid,
+            "host": f"http://127.0.0.1:{_PORT.value}",
+        },
+    ])
+
+    for p in peers:
+        print(f"Adding peer: {p}")
+        resp = requests.post(f'{p}/pubsub/join', json = {
+            "user": uid,
+            "port": _PORT.value,
+        })
+        if resp.status_code == requests.codes.ok:
+            federated.merge([{
+                "user": resp.json()["user"],
+                "host": p,
+            }] + resp.json()["neighbors"])
+
+def main(argv):
+    link()
+    app.run(host='localhost', debug=True, port=_PORT.value)
 
 if __name__ == '__main__':
-    app.run(host='localhost', debug=True)
-
+    absl_app.run(main)
