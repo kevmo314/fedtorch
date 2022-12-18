@@ -50,16 +50,20 @@ def pubsub_join():
             ],
         }
     """
+    # Add requestor to list of neighbors.
     neighbors = federated.merge([
         {
             "user": request.get_json()["user"],
-            "host": f'{request.remote_addr}:{request.get_json()["port"]}',
+            "host": f'{request.scheme}://{request.remote_addr}:{request.get_json()["port"]}',
         },
     ])
 
-    uuid = neighbors[0]["user"]
+    app.logger.info('DEBUG: neighbors = %s', neighbors)
+    # The UUID of the local instance is always the first item in the neighbor
+    # list.
+    uid = neighbors[0]["user"]
     return {
-        "user": uuid,
+        "user": uid,
         "neighbors": neighbors[1:],
     }
 
@@ -189,6 +193,7 @@ def link():
 
     # Add self.
     uid = str(uuid.uuid4())
+    print(f"DEBUG: link uuid {uid}, this should only be called once per server port instance -----------------------")
     federated.merge([
         {
             "user": uid,
@@ -197,16 +202,16 @@ def link():
     ])
 
     for p in peers:
-        print(f"Adding peer: {p}")
         resp = requests.post(f'{p}/pubsub/join', json = {
             "user": uid,
             "port": _PORT.value,
         })
         if resp.status_code == requests.codes.ok:
+            data = resp.json()
             federated.merge([{
-                "user": resp.json()["user"],
+                "user": data["user"],
                 "host": p,
-            }] + resp.json()["neighbors"])
+            }] + data["neighbors"])
 
 def main(argv):
     link()

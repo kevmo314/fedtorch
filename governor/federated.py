@@ -47,7 +47,6 @@ def reserve(lease):
 
 
 def merge(updates):
-    print(f"Merging: {updates}")
     neighbors_lock.acquire()
     vs = []
     try:
