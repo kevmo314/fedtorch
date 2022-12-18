@@ -1,4 +1,7 @@
-FROM python:3.10
+FROM nvidia/cuda:12.0.0-base-ubuntu22.04
+
+RUN apt-get update
+RUN apt-get install -y python3 python3-venv
 
 ENV POETRY_VERSION=1.2.0
 ENV POETRY_HOME=/opt/poetry
