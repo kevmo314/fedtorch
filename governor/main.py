@@ -1,26 +1,17 @@
 from flask import Flask, request, render_template, redirect
 import asyncio
 import json
+
 import api
+import federated
+
 import time
+import datetime
 import torch
 import io
 
 
-from activitypub.manager import FlaskManager as M
-from activitypub.database import ListDatabase as DB
-
-db = DB()
-uuid = "some-uuid"
 app = Flask(__name__)
-manager = M(database=db)
-p = manager.Person(id=uuid).to_dict()
-
-
-@app.before_first_request
-def generate_activitypub_client_actor():
-    db.actors.insert_one(p)
-
 
 @app.route("/")
 def index():
@@ -29,6 +20,64 @@ def index():
         active_tasks=[t for t in api.tasks if t["state"] == "active"],
         offers=api.offers,
     )
+
+@app.route("/pubsub/join", methods=["POST"])
+def pubsub_join():
+    return federated.join({
+        "user": request.get_json()["user"],
+        # Federated address. Assuming 5000 for now.
+        # TODO(minkezhang): Allow a user-supplied port value.
+        "host": f'{request.remote_addr}:5000',
+    })
+
+@app.route("/pubsub/probe", methods=["POST"])
+def pubsub_probe():
+    """
+    Attempts to reserve GPU downstream. The upstream caller cannot fulfill the request locally.
+
+    Payload:
+        {
+            "task_id": "some-task-id",
+        }
+
+    Returns:
+        {} or {
+            "id": 1,
+            "task_id": "some-task-id",
+            "expiration": datetime.strftime(...),
+        }
+    """
+
+    return federated.reserve({
+        "id": -1,
+        "task_id": request.get_json()["task_id"],
+        "lease": datetime.timedelta(seconds=60),
+    })
+
+@app.route("/pubsub/extend", methods=["POST"])
+def pubsub_extend():
+    """
+    Reserves GPU which was previously reserved via /pubsub/probe. The input ID must refer to the local device.
+
+    Payload:
+        {
+            "id": 1,
+            "task_id": "some-task-id",
+            "lease": 3600,
+        }
+
+    Returns:
+        {} or {
+            "id": 1,
+            "task_id": "some-task-id",
+            "expiration": datetime.strftime(...),
+        }
+    """
+    return federated.reserve({
+        "id": request.get_json()["id"],
+        "task_id": request.get_json()["task_id"],
+        "lease": datetime.timedelta(seconds=request.get_json()["lease"]),
+    })
 
 @app.route("/tasks/<task_id>/approve")
 def approve_task(task_id):
@@ -40,7 +89,6 @@ def approve_task(task_id):
     # asyncio.ensure_future(api.approve(task_id))
     # redirect to index
     return redirect("/")
-
 
 @app.route("/api/submit", methods=["POST"])
 def route():
