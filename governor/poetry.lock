@@ -1,10 +1,10 @@
 [[package]]
-name = "activitypub"
-version = "0.0.3"
-description = "A general Python ActivityPub library"
+name = "absl-py"
+version = "1.3.0"
+description = "Abseil Python Common Libraries, see https://github.com/abseil/abseil-py."
 category = "main"
 optional = false
-python-versions = "*"
+python-versions = ">=3.6"
 
 [[package]]
 name = "aiohttp"
@@ -288,12 +288,12 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.10"
-content-hash = "97820f96833501bb669a96a3ce7830448c6060ee40c300937ee875f8b7436fd3"
+content-hash = "f07dd34b310baedef68a26de4a1eac0f154b8ce9e9cfa786153902d026bc8af9"
 
 [metadata.files]
-activitypub = [
-    {file = "activitypub-0.0.3-py2.py3-none-any.whl", hash = "sha256:68efb25c0f8a64ccab8f86302d9fc2d001a8ce164501bddd2218e69b582adbf7"},
-    {file = "activitypub-0.0.3.tar.gz", hash = "sha256:81f02761097fa9bacb8490a1a6f8cf61ae96bc100c74775046ea441082b69510"},
+absl-py = [
+    {file = "absl-py-1.3.0.tar.gz", hash = "sha256:463c38a08d2e4cef6c498b76ba5bd4858e4c6ef51da1a5a1f27139a022e20248"},
+    {file = "absl_py-1.3.0-py3-none-any.whl", hash = "sha256:34995df9bd7a09b3b8749e230408f5a2a2dd7a68a0d33c12a3d0cb15a041a507"},
 ]
 aiohttp = [
     {file = "aiohttp-3.8.3-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:ba71c9b4dcbb16212f334126cc3d8beb6af377f6703d9dc2d9fb3874fd667ee9"},
