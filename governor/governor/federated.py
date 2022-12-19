@@ -4,6 +4,8 @@ TODO(minkezhang): Use ActivityPub for a more formal federated framework.
 import threading
 import datetime
 import torch
+import os
+import uuid
 
 neighbors_lock = threading.Lock()
 neighbors = [
@@ -20,6 +22,43 @@ gpus = [
         "expiration": datetime.datetime.now(),
     } for i in range(torch.cuda.device_count())
 ]
+
+PORT = os.getenv("PORT") or 5000
+
+def link():
+    """
+    Links app with other instances.
+
+    N.B.: This will have a race condition, since there is some amount of time
+    between this set of requests are processed and when this server is actually
+    up.
+    """
+
+    peers = None  # TODO: get from config
+    if peers is None:
+        peers = []
+
+    # Add self.
+    uid = str(uuid.uuid4())
+
+    merge([
+        {
+            "user": uid,
+            "host": f"http://127.0.0.1:{PORT}",
+        },
+    ])
+
+    for p in peers:
+        resp = requests.post(f'{p}/pubsub/join', json = {
+            "user": uid,
+            "port": PORT,
+        })
+        if resp.status_code == requests.codes.ok:
+            data = resp.json()
+            merge([{
+                "user": data["user"],
+                "host": p,
+            }] + data["neighbors"])
 
 # Remote server should update its list of neighbors and remove from its local
 # neighbor list, then retry with other neighbors.
